@@ -1,0 +1,399 @@
+# CTR 데이터 핵심 패턴 분석
+# 다음 단계: 시간 패턴, 불균형 처리, 결측값 전략
+
+import cudf
+import cupy as cp
+import pandas as pd
+import numpy as np
+import pyarrow.parquet as pq
+import matplotlib.pyplot as plt
+import seaborn as sns
+from datetime import datetime
+import gc
+
+print("🎯 CTR 핵심 패턴 분석")
+print("=" * 60)
+
+def clear_gpu_memory():
+    """GPU 메모리 정리"""
+    try:
+        mempool = cp.get_default_memory_pool()
+        mempool.free_all_blocks()
+        gc.collect()
+    except:
+        gc.collect()
+
+: {e}")
+        return None
+
+# 1. 시간 패턴 심층 분석
+def analyze_temporal_patterns(gdf):
+    """시간 관련 패턴 분석"""
+    print(f"\n📅 시간 패턴 분석")
+    
+    # 시간 컬럼 확인
+    time_columns = ['day_of_week', 'hour', 'seq']
+    available_time_cols = [col for col in time_columns if col in gdf.columns]
+    
+    print(f"   시간 관련 컬럼: {available_time_cols}")
+    
+    temporal_insights = {}
+    
+    # 1.1 요일별 패턴
+    if 'day_of_week' in available_time_cols:
+        print(f"\n   📊 요일별 클릭 패턴:")
+        dow_stats = gdf.groupby('day_of_week').agg({
+            'clicked': ['count', 'sum', 'mean']
+        }).to_pandas()
+        
+        dow_stats.columns = ['총_노출', '총_클릭', '클릭률']
+        print(dow_stats)
+        
+        # 주말/평일 비교
+        weekend_data = gdf[gdf['day_of_week'].isin([5, 6])]
+        weekday_data = gdf[~gdf['day_of_week'].isin([5, 6])]
+        
+        weekend_ctr = weekend_data['clicked'].mean()
+        weekday_ctr = weekday_data['clicked'].mean()
+        
+        print(f"   🎯 주말 클릭률: {weekend_ctr:.4f}")
+        print(f"   🎯 평일 클릭률: {weekday_ctr:.4f}")
+        print(f"   🎯 주말/평일 비율: {weekend_ctr/weekday_ctr:.2f}")
+        
+        temporal_insights['weekend_boost'] = weekend_ctr / weekday_ctr
+    
+    # 1.2 시간대별 패턴
+    if 'hour' in available_time_cols:
+        print(f"\n   🕐 시간대별 클릭 패턴:")
+        hour_stats = gdf.groupby('hour').agg({
+            'clicked': ['count', 'sum', 'mean']
+        }).to_pandas()
+        
+        hour_stats.columns = ['총_노출', '총_클릭', '클릭률']
+        
+        # 피크 시간대 찾기
+        peak_hours = hour_stats.nlargest(3, '클릭률').index.tolist()
+        low_hours = hour_stats.nsmallest(3, '클릭률').index.tolist()
+        
+        print(f"   🔥 고 클릭 시간대: {peak_hours}")
+        print(f"   💤 저 클릭 시간대: {low_hours}")
+        
+        # 시간대 그룹별 성과
+        morning = hour_stats[hour_stats.index.isin([6,7,8,9,10,11])]['클릭률'].mean()
+        afternoon = hour_stats[hour_stats.index.isin([12,13,14,15,16,17])]['클릭률'].mean()
+        evening = hour_stats[hour_stats.index.isin([18,19,20,21,22])]['클릭률'].mean()
+        night = hour_stats[hour_stats.index.isin([23,0,1,2,3,4,5])]['클릭률'].mean()
+        
+        print(f"   🌅 오전(6-11): {morning:.4f}")
+        print(f"   ☀️ 오후(12-17): {afternoon:.4f}")
+        print(f"   🌆 저녁(18-22): {evening:.4f}")
+        print(f"   🌙 밤(23-5): {night:.4f}")
+        
+        temporal_insights['peak_hours'] = peak_hours
+        temporal_insights['best_period'] = max([
+            ('오전', morning), ('오후', afternoon), 
+            ('저녁', evening), ('밤', night)
+        ], key=lambda x: x[1])
+    
+    # 1.3 seq 컬럼 분석 (순서/시간 정보)
+    if 'seq' in available_time_cols:
+        print(f"\n   📈 시퀀스(seq) 패턴 분석:")
+        
+        # seq와 클릭률의 관계
+        seq_bins = cp.linspace(gdf['seq'].min(), gdf['seq'].max(), 20)
+        gdf['seq_bin'] = cp.digitize(gdf['seq'], seq_bins)
+        
+        seq_stats = gdf.groupby('seq_bin').agg({
+            'clicked': ['count', 'mean']
+        }).to_pandas()
+        seq_stats.columns = ['노출수', '클릭률']
+        
+        print("   시퀀스 구간별 클릭률 (상위 5개):")
+        print(seq_stats.nlargest(5, '클릭률'))
+        
+        # seq 범위 분석
+        seq_min, seq_max = float(gdf['seq'].min()), float(gdf['seq'].max())
+        seq_range = seq_max - seq_min
+        
+        print(f"   🎯 seq 범위: {seq_min:.0f} ~ {seq_max:.0f} (범위: {seq_range:.0f})")
+        
+        temporal_insights['seq_range'] = (seq_min, seq_max)
+    
+    return temporal_insights
+
+# 2. 결측값 심층 분석
+def analyze_missing_patterns(gdf):
+    """결측값 패턴 분석 및 전략 수립"""
+    print(f"\n❓ 결측값 심층 분석")
+    
+    # 결측값 비율 계산
+    missing_stats = []
+    for col in gdf.columns:
+        if col != 'clicked':
+            missing_count = gdf[col].isnull().sum()
+            missing_pct = (missing_count / len(gdf)) * 100
+            
+            if missing_count > 0:
+                missing_stats.append({
+                    'column': col,
+                    'missing_count': missing_count,
+                    'missing_pct': missing_pct,
+                    'dtype': str(gdf[col].dtype)
+                })
+    
+    # 결측값 심각도별 분류
+    missing_df = pd.DataFrame(missing_stats).sort_values('missing_pct', ascending=False)
+    
+    severe_missing = missing_df[missing_df['missing_pct'] > 50]  # 50% 이상
+    moderate_missing = missing_df[(missing_df['missing_pct'] > 10) & (missing_df['missing_pct'] <= 50)]  # 10-50%
+    light_missing = missing_df[missing_df['missing_pct'] <= 10]  # 10% 이하
+    
+    print(f"   🚨 심각한 결측 (>50%): {len(severe_missing)}개")
+    print(f"   ⚠️ 보통 결측 (10-50%): {len(moderate_missing)}개")
+    print(f"   💡 가벼운 결측 (<10%): {len(light_missing)}개")
+    
+    # 상위 10개 결측 컬럼
+    print(f"\n   📊 결측값 상위 10개 컬럼:")
+    for _, row in missing_df.head(10).iterrows():
+        print(f"      {row['column']}: {row['missing_pct']:.1f}% ({row['dtype']})")
+    
+    # 결측 패턴과 클릭률의 관계
+    print(f"\n   🎯 결측값과 클릭률 관계:")
+    
+    # 몇 개 주요 결측 컬럼에 대해 분석
+    for _, row in missing_df.head(5).iterrows():
+        col = row['column']
+        
+        # 결측 여부에 따른 클릭률 비교
+        missing_mask = gdf[col].isnull()
+        
+        ctr_with_missing = gdf[missing_mask]['clicked'].mean() if missing_mask.sum() > 0 else 0
+        ctr_without_missing = gdf[~missing_mask]['clicked'].mean() if (~missing_mask).sum() > 0 else 0
+        
+        if ctr_with_missing > 0 and ctr_without_missing > 0:
+            ratio = ctr_with_missing / ctr_without_missing
+            print(f"      {col}: 결측시 {ctr_with_missing:.4f} vs 정상시 {ctr_without_missing:.4f} (비율: {ratio:.2f})")
+    
+    return {
+        'severe_missing': severe_missing,
+        'moderate_missing': moderate_missing,
+        'light_missing': light_missing,
+        'total_missing_cols': len(missing_df)
+    }
+
+# 3. 특성별 클릭률 분석
+def analyze_feature_impact(gdf):
+    """특성별 클릭률 영향도 분석"""
+    print(f"\n🎯 특성별 클릭률 영향도 분석")
+    
+    feature_impacts = {}
+    
+    # 범주형 특성 분석
+    categorical_cols = gdf.select_dtypes(include=['object']).columns
+    print(f"   📊 범주형 특성 ({len(categorical_cols)}개):")
+    
+    for col in categorical_cols:
+        if col in gdf.columns and col != 'clicked':
+            try:
+                # 카테고리별 클릭률
+                cat_stats = gdf.groupby(col).agg({
+                    'clicked': ['count', 'sum', 'mean']
+                }).to_pandas()
+                
+                cat_stats.columns = ['노출수', '클릭수', '클릭률']
+                
+                # 통계적으로 유의미한 차이가 있는지 확인
+                click_rates = cat_stats['클릭률'].values
+                ctr_std = np.std(click_rates)
+                ctr_range = np.max(click_rates) - np.min(click_rates)
+                
+                print(f"      {col}: CTR 범위 {np.min(click_rates):.4f}~{np.max(click_rates):.4f}, "
+                      f"표준편차 {ctr_std:.4f}")
+                
+                feature_impacts[col] = {
+                    'type': 'categorical',
+                    'ctr_range': ctr_range,
+                    'ctr_std': ctr_std,
+                    'categories': len(cat_stats)
+                }
+                
+            except Exception as e:
+                print(f"      {col}: 분석 실패 - {e}")
+    
+    # 수치형 특성 상관관계 분석 (상위 10개만)
+    numeric_cols = gdf.select_dtypes(include=['int32', 'int64', 'float32', 'float64']).columns
+    numeric_cols = [col for col in numeric_cols if col != 'clicked'][:10]
+    
+    print(f"\n   📈 수치형 특성 상관관계 (상위 10개):")
+    
+    for col in numeric_cols:
+        try:
+            # clicked와의 상관관계
+            correlation = float(gdf[[col, 'clicked']].corr().iloc[0, 1])
+            
+            # 분위수별 클릭률
+            quartiles = gdf[col].quantile([0.25, 0.5, 0.75]).to_pandas()
+            
+            q1_ctr = gdf[gdf[col] <= quartiles[0.25]]['clicked'].mean()
+            q4_ctr = gdf[gdf[col] >= quartiles[0.75]]['clicked'].mean()
+            
+            ctr_diff = abs(q4_ctr - q1_ctr)
+            
+            print(f"      {col}: 상관계수 {correlation:.4f}, "
+                  f"Q1 CTR {q1_ctr:.4f} vs Q4 CTR {q4_ctr:.4f} (차이: {ctr_diff:.4f})")
+            
+            feature_impacts[col] = {
+                'type': 'numeric',
+                'correlation': correlation,
+                'ctr_diff': ctr_diff
+            }
+            
+        except Exception as e:
+            print(f"      {col}: 분석 실패 - {e}")
+    
+    return feature_impacts
+
+# 4. 불균형 심화 분석
+def analyze_imbalance_strategies(gdf):
+    """클래스 불균형 상세 분석 및 전략"""
+    print(f"\n⚖️ 클래스 불균형 심화 분석")
+    
+    total_samples = len(gdf)
+    positive_samples = int(gdf['clicked'].sum())
+    negative_samples = total_samples - positive_samples
+    
+    imbalance_ratio = negative_samples / positive_samples
+    positive_pct = (positive_samples / total_samples) * 100
+    
+    print(f"   📊 클래스 분포:")
+    print(f"      양성(클릭): {positive_samples:,}개 ({positive_pct:.2f}%)")
+    print(f"      음성(미클릭): {negative_samples:,}개 ({100-positive_pct:.2f}%)")
+    print(f"      불균형 비율: {imbalance_ratio:.1f}:1")
+    
+    # 불균형 심각도 평가
+    if imbalance_ratio > 100:
+        severity = "극심함"
+        color = "🚨"
+    elif imbalance_ratio > 20:
+        severity = "심각함"  
+        color = "⚠️"
+    elif imbalance_ratio > 5:
+        severity = "보통"
+        color = "💡"
+    else:
+        severity = "경미함"
+        color = "✅"
+    
+    print(f"   {color} 불균형 심각도: {severity}")
+    
+    # 권장 전략
+    print(f"\n   🎯 권장 불균형 처리 전략:")
+    
+    strategies = []
+    
+    if imbalance_ratio > 50:
+        strategies.extend([
+            "Focal Loss (γ=2, α=0.25)",
+            "SMOTE + 언더샘플링 조합",
+            "Cost-sensitive learning (class_weight='balanced')",
+            "Ensemble with different sampling"
+        ])
+    elif imbalance_ratio > 10:
+        strategies.extend([
+            "Class weight 조정",
+            "Borderline-SMOTE",
+            "Focal Loss (γ=1)",
+            "Threshold moving"
+        ])
+    else:
+        strategies.extend([
+            "Class weight 미세 조정",
+            "Random oversampling",
+            "Ensemble diversity"
+        ])
+    
+    for i, strategy in enumerate(strategies, 1):
+        print(f"      {i}. {strategy}")
+    
+    # 평가 지표 최적화 방향
+    print(f"\n   📈 평가 지표 최적화:")
+    print(f"      • Average Precision: 상위 랭킹 품질 집중")
+    print(f"      • Weighted LogLoss: 클래스 균형 50:50 유지")
+    print(f"      • 최종 점수: 0.5 * AP + 0.5 * (1/(1+WLL))")
+    
+    return {
+        'imbalance_ratio': imbalance_ratio,
+        'positive_pct': positive_pct,
+        'severity': severity,
+        'recommended_strategies': strategies
+    }
+
+# 5. 메인 실행 함수
+def run_deep_analysis():
+    """핵심 패턴 분석 실행"""
+    print(f"\n{'='*60}")
+    print("🚀 CTR 핵심 패턴 분석 실행")
+    print(f"{'='*60}")
+    
+    # 스마트 샘플 로딩
+    sample_gdf = load_smart_sample('../data/train.parquet', target_rows=200000)
+    
+    if sample_gdf is None:
+        print("❌ 샘플 로딩 실패")
+        return
+    
+    print(f"✅ 분석 데이터 준비 완료: {len(sample_gdf):,}행 × {len(sample_gdf.columns)}컬럼")
+    
+    # 1. 시간 패턴 분석
+    temporal_insights = analyze_temporal_patterns(sample_gdf)
+    
+    # 2. 결측값 분석
+    missing_insights = analyze_missing_patterns(sample_gdf)
+    
+    # 3. 특성 영향도 분석
+    feature_impacts = analyze_feature_impact(sample_gdf)
+    
+    # 4. 불균형 전략 분석
+    imbalance_insights = analyze_imbalance_strategies(sample_gdf)
+    
+    # 최종 종합 권장사항
+    print(f"\n{'='*60}")
+    print("🎯 종합 권장사항 및 다음 단계")
+    print(f"{'='*60}")
+    
+    print(f"\n1️⃣ 우선순위 1: 시간 특성 활용")
+    if 'best_period' in temporal_insights:
+        best_period = temporal_insights['best_period']
+        print(f"   • 최적 시간대: {best_period[0]} (CTR: {best_period[1]:.4f})")
+    if 'weekend_boost' in temporal_insights:
+        weekend_boost = temporal_insights['weekend_boost']
+        print(f"   • 주말 효과: {weekend_boost:.2f}배")
+    print(f"   • 순환 시간 인코딩 적용 (sin/cos 변환)")
+    
+    print(f"\n2️⃣ 우선순위 2: 결측값 전략")
+    print(f"   • 심각한 결측 컬럼: {len(missing_insights['severe_missing'])}개 → 제거 검토")
+    print(f"   • 보통 결측 컬럼: {len(missing_insights['moderate_missing'])}개 → 대치 전략")
+    print(f"   • 결측값 자체를 특성으로 활용 (missing indicator)")
+    
+    print(f"\n3️⃣ 우선순위 3: 불균형 처리")
+    severity = imbalance_insights['severity']
+    ratio = imbalance_insights['imbalance_ratio']
+    print(f"   • 불균형 정도: {severity} ({ratio:.1f}:1)")
+    print(f"   • 1차 전략: {imbalance_insights['recommended_strategies'][0]}")
+    print(f"   • 2차 전략: {imbalance_insights['recommended_strategies'][1]}")
+    
+    print(f"\n4️⃣ 다음 실행 단계:")
+    print(f"   1. 베이스라인 모델 구축 (XGBoost GPU)")
+    print(f"   2. 시간 특성 공학 적용")
+    print(f"   3. 불균형 처리 A/B 테스트")
+    print(f"   4. CV 전략 수립 (Time-aware split)")
+    print(f"   5. 앙상블 전략 설계")
+    
+    # 메모리 정리
+    del sample_gdf
+    clear_gpu_memory()
+    
+    print(f"\n✅ 핵심 패턴 분석 완료!")
+
+if __name__ == "__main__":
+    run_deep_analysis()

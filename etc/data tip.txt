@@ -1,0 +1,32 @@
+안녕하세요,
+추천 시스템은 이전부터 관심 있는 분야였는데
+실제 기업 데이터를 다룰 수 있는 좋은 대회 열어 주셔서 감사합니다.
+
+본 대회의 데이터셋은 약 1000만 행이기 때문에
+전체 데이터셋을 읽는 순간 RAM overflow가 일어나기 쉽습니다.
+polars를 사용하는 방법도 있으나, 이 코드에서는 특히 CTR 과제에 특화된 프레임워크인 NVIDIA Merlin을 소개합니다.
+
+코드는 XGBoost 기준으로 작성했으나 normalization 적용 시 NN 계열 모델에도 적용 가능합니다.
+더 자세한 내용이 궁금하시다면 공식 홈페이지와 깃허브 코드를 참고해 보시면 좋습니다.
+(https://developer.nvidia.com/merlin)
+
+RTX A6000 기준으로 전체 데이터 5fold-CV(stratifiedKfold) 학습에 약 2분 가량이 소요됩니다.
+소요 시간이 짧은 이유는 아래와 같습니다.
+
+1. GPU-Accelerated Data Processing
+- cuDF는 GPU DataFrame으로 pandas보다 10~50배 빠릅니다.
+- RAPIDS 프레임워크에 통합되어 cuML, cuGraph 및 CUDA 최적화가 되어 있습니다.
+
+2. Out-of-Core Processing
+- 대용량 데이터(CTR 특유의 high-cardinality열 대응), 스마트 캐싱, 메모리 스필링(GPU->CPU->디스크) 등을 지원합니다.
+
+3. Columnar Memory Layout
+- Merlin 프레임워크 자체가 .parquet에 최적화되어 cuDF+parquet 조합으로 속도를 더욱 가속합니다.
+- 컬럼별 압축/인코딩 및 벡터화 연산을 지원합니다.
+
+코드에는 간단한 class weight이 적용되어 있고, seq 열은 학습에서 제외되어 있습니다.
+감사합니다.
+
+[baseline score 비교]
+CV Score: 0.353183 ± 0.000688
+LB Score: 0.3308
