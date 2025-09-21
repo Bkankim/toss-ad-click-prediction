@@ -11,10 +11,10 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import polars as pl
-
 from src.data.downsample import DownsampleConfig, create_downsampled_dataset
+from src.inference import generate_submission
 from src.train.lightgbm_runner import LightGBMConfig, train_lightgbm
+from src.train.log_utils import report_root_disk_usage
 
 try:
     import wandb  # type: ignore
@@ -22,10 +22,8 @@ except ImportError:  # pragma: no cover
     wandb = None  # type: ignore
 
 
-    wandb = None  # type: ignore
-
-
 def parse_args() -> argparse.Namespace:
+    # 학습 실행에 필요한 커맨드라인 인자를 정의한다.
     parser = argparse.ArgumentParser(description="Train LightGBM baseline model")
     parser.add_argument("--raw-train", default="data/train.parquet", help="Path to raw train parquet")
     parser.add_argument(
@@ -44,10 +42,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-dir", default="model", help="Directory to save trained model")
     parser.add_argument("--config-dir", default="model", help="Directory to save config snapshot")
     parser.add_argument("--notes", default="", help="Optional notes for metric logging")
+    parser.add_argument(
+        "--run-inference",
+        action="store_true",
+        help="Generate submission predictions after training",
+    )
+    parser.add_argument(
+        "--inference-input",
+        default="data/processed/test.parquet",
+        help="Parquet file used for submission inference",
+    )
+    parser.add_argument(
+        "--submission-path",
+        default=None,
+        help="Optional path for the generated submission CSV",
+    )
     return parser.parse_args()
 
 
 def ensure_wandb_login() -> None:
+    # wandb API 키를 사용해 로그인을 보장한다.
     if wandb is None:
         raise ImportError("wandb package is not installed. Install wandb or disable --wandb option.")
     api_key = os.getenv("WANDB_API_KEY")
@@ -57,7 +71,24 @@ def ensure_wandb_login() -> None:
         wandb.login()  # fallback to interactive login
 
 
+def summarize_config(args: argparse.Namespace, lgbm_cfg: LightGBMConfig) -> dict[str, float | int | str]:
+    # 주요 학습/전처리 하이퍼파라미터를 정리해 로그 하단에 출력한다.
+    return {
+        "NEGATIVE_MULTIPLIER": args.negative_multiplier,
+        "TEST_SIZE": lgbm_cfg.test_size,
+        "LEARNING_RATE": lgbm_cfg.learning_rate,
+        "NUM_LEAVES": lgbm_cfg.num_leaves,
+        "NUM_BOOST_ROUND": lgbm_cfg.num_boost_round,
+        "EARLY_STOPPING_ROUNDS": lgbm_cfg.early_stopping_rounds,
+        "FEATURE_FRACTION": lgbm_cfg.feature_fraction,
+        "BAGGING_FRACTION": lgbm_cfg.bagging_fraction,
+        "BAGGING_FREQ": lgbm_cfg.bagging_freq,
+        "RANDOM_SEED": lgbm_cfg.random_state,
+    }
+
+
 def main() -> None:
+    # 다운샘플링부터 LightGBM 학습과 모델 저장까지의 전체 파이프라인을 실행한다.
     args = parse_args()
 
     downsample_path = Path(args.train_path)
@@ -88,6 +119,7 @@ def main() -> None:
     model_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     model_path = model_dir / f"lgb_model_{timestamp}.txt"
+    report_root_disk_usage()
     result.model.save_model(model_path.as_posix())
 
     config_dir = Path(args.config_dir)
@@ -103,6 +135,7 @@ def main() -> None:
         "train_path": str(downsample_path),
         "seed": args.seed,
     }
+    report_root_disk_usage()
     config_path.write_text(json.dumps(payload, indent=2))
 
     print(f"✅ Model saved to {model_path}")
@@ -114,6 +147,18 @@ def main() -> None:
             score=result.metrics["competition_score"],
         )
     )
+    cfg_summary = summarize_config(args, lgbm_cfg)
+    print(f"CFG = {cfg_summary}")
+
+    if args.run_inference:
+        submission_path = args.submission_path or f"submission/{result.run_id}_preds.csv"
+        submission_file = generate_submission(
+            model_path=model_path.as_posix(),
+            input_path=args.inference_input,
+            output_path=submission_path,
+            run_id=result.run_id,
+        )
+        print(f"📤 Submission generated at {submission_file}")
 
 
 if __name__ == "__main__":

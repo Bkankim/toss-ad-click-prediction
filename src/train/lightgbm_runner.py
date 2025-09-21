@@ -20,6 +20,7 @@ except ImportError:  # pragma: no cover
 
 
 @dataclass
+# LightGBM 학습에 필요한 하이퍼파라미터와 경로 설정을 묶는다.
 class LightGBMConfig:
     train_path: str
     target_col: str = "clicked"
@@ -42,6 +43,7 @@ class LightGBMConfig:
 
 
 @dataclass
+# 학습이 끝난 후 결과 요약과 메타데이터를 담는다.
 class TrainingResult:
     model: lgb.Booster
     run_id: str
@@ -66,6 +68,7 @@ PARAM_KEYS = (
 )
 
 
+# LightGBM용 기본 파라미터 딕셔너리를 구성한다.
 def _build_params(cfg: LightGBMConfig) -> dict:
     return {
         "objective": "binary",
@@ -81,6 +84,7 @@ def _build_params(cfg: LightGBMConfig) -> dict:
     }
 
 
+# wandb 실행을 초기화하고 세션 핸들을 반환한다.
 def _init_wandb(cfg: LightGBMConfig, run_id: str, params: dict) -> Optional["wandb.sdk.wandb_run.Run"]:
     if not cfg.enable_wandb:
         return None
@@ -96,6 +100,7 @@ def _init_wandb(cfg: LightGBMConfig, run_id: str, params: dict) -> Optional["wan
     return wandb_run
 
 
+# LightGBM 모델을 학습하고 결과 요약을 반환한다.
 def train_lightgbm(cfg: LightGBMConfig) -> TrainingResult:
     data_path = Path(cfg.train_path)
     if not data_path.exists():

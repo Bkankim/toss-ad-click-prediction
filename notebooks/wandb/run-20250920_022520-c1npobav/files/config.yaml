@@ -1,0 +1,81 @@
+_wandb:
+    value:
+        cli_version: 0.22.0
+        e:
+            dl84hgckojd3chkc5rg821x0piaclcv5:
+                codePath: notebooks/stage0_lightgbm_runner.ipynb
+                codePathLocal: stage0_lightgbm_runner.ipynb
+                cpu_count: 32
+                cpu_count_logical: 64
+                cudaVersion: "12.2"
+                disk:
+                    /:
+                        total: "1965728006144"
+                        used: "312054177792"
+                email: rlaqudgusdh@gmail.com
+                executable: /Competition/.venv/bin/python
+                git:
+                    commit: 61aaeac3cec498136606b30bec2bc73a5359ddad
+                    remote: git@github.com:Bkankim/toss-ad-click-prediction.git
+                gpu: NVIDIA GeForce RTX 3090
+                gpu_count: 1
+                gpu_nvidia:
+                    - architecture: Ampere
+                      cudaCores: 10496
+                      memoryTotal: "25769803776"
+                      name: NVIDIA GeForce RTX 3090
+                      uuid: GPU-ce64bdf9-5690-92c8-f3c8-8ebd35d1a9ce
+                host: instance-15982
+                memory:
+                    total: "270172200960"
+                os: Linux-5.4.0-166-generic-x86_64-with-glibc2.31
+                program: /Competition/toss-ad-click-prediction/notebooks/stage0_lightgbm_runner.ipynb
+                python: CPython 3.10.13
+                root: /Competition/toss-ad-click-prediction/notebooks
+                startedAt: "2025-09-19T17:25:20.575322Z"
+                writerId: dl84hgckojd3chkc5rg821x0piaclcv5
+        m: []
+        python_version: 3.10.13
+        t:
+            "1":
+                - 5
+                - 8
+                - 53
+            "2":
+                - 5
+                - 8
+                - 53
+            "3":
+                - 2
+                - 13
+                - 16
+            "4": 3.10.13
+            "5": 0.22.0
+            "8":
+                - 1
+            "10":
+                - 20
+            "12": 0.22.0
+            "13": linux-x86_64
+bagging_fraction:
+    value: 0.8
+bagging_freq:
+    value: 5
+boosting_type:
+    value: gbdt
+feature_fraction:
+    value: 0.8
+learning_rate:
+    value: 0.1
+metric:
+    value: binary_logloss
+num_leaves:
+    value: 31
+objective:
+    value: binary
+random_state:
+    value: 42
+test_size:
+    value: 0.2
+verbose:
+    value: -1

@@ -1,0 +1,7 @@
+{
+  "model_path": "/Competition/toss-ad-click-prediction/model/lgb_model_20250921_081928.txt",
+  "input_path": "/Competition/toss-ad-click-prediction/data/test.parquet",
+  "output_path": "submission/20250921_081620_lgbm_baseline_preds.csv",
+  "run_id": "20250921_081620_lgbm_baseline",
+  "num_rows": 1527298
+}
