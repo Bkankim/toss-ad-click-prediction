@@ -95,6 +95,14 @@ def weighted_logloss(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return loss.sum() / weights.sum()
 
 
+# 일반 LogLoss를 계산한다.
+def logloss(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    eps = 1e-15
+    y_pred = np.clip(y_pred, eps, 1 - eps)
+    loss = -(y_true * np.log(y_pred) + (1 - y_true) * np.log(1 - y_pred))
+    return float(np.mean(loss))
+
+
 # 혼합 점수를 계산한다.
 def blended_score(ap: float, wll: float) -> float:
     return 0.5 * ap + 0.5 * (1.0 / (1.0 + wll))
@@ -139,19 +147,21 @@ def train_lightgbm(
 
         ap = average_precision_score(y_valid, valid_pred)
         wll = weighted_logloss(y_valid, valid_pred)
+        ll = logloss(y_valid, valid_pred)
         score = blended_score(ap, wll)
-        fold_metrics.append({"fold": fold, "ap": ap, "wll": wll, "score": score})
+        fold_metrics.append({"fold": fold, "ap": ap, "logloss": ll, "wll": wll, "score": score})
 
         model_path = output_dir / f"fold_{fold}.txt"
         booster.save_model(model_path.as_posix())
 
     ap_full = average_precision_score(y, oof_pred)
+    ll_full = logloss(y, oof_pred)
     wll_full = weighted_logloss(y, oof_pred)
     score_full = blended_score(ap_full, wll_full)
 
     metrics = {
         "folds": fold_metrics,
-        "overall": {"ap": ap_full, "wll": wll_full, "score": score_full},
+        "overall": {"ap": ap_full, "logloss": ll_full, "wll": wll_full, "score": score_full},
     }
     return models, metrics, oof_pred
 
