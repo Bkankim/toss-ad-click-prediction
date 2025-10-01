@@ -5,7 +5,10 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
+
+import platform
+import resource
 
 
 # 명령행 인자를 파싱한다.
@@ -54,6 +57,29 @@ def summarize_parquet(path: Path) -> Dict[str, int]:
 
 
 # 데이터 경로를 검증하고 샘플 요약을 출력한다.
+def _format_memory_usage_gb(usage_gb: Optional[float]) -> str:
+    if usage_gb is None:
+        return "unknown"
+    return f"{usage_gb:.2f} GB"
+
+
+def _current_memory_usage_gb() -> Optional[float]:
+    try:
+        usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        if usage == 0:
+            return None
+        if platform.system() == "Darwin":
+            return usage / (1024**3)
+        return usage / (1024 * 1024)
+    except Exception:
+        try:
+            import psutil  # type: ignore
+
+            return psutil.Process().memory_info().rss / (1024**3)
+        except Exception:
+            return None
+
+
 def check_data(sample_rows: int) -> None:
     paths = load_data_paths()
     for label, path in paths.items():
@@ -72,6 +98,9 @@ def check_data(sample_rows: int) -> None:
             print(
                 f"  → rows={summary.get('num_rows')} cols={summary.get('num_columns')}"
             )
+
+        usage_gb = _current_memory_usage_gb()
+        print(f"  → memory usage: {_format_memory_usage_gb(usage_gb)} (limit 64GB)")
 
         if sample_rows <= 0:
             continue

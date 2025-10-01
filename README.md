@@ -31,12 +31,21 @@
 - `TRAIN_PATH`, `TEST_PATH`: 학습·추론에 사용할 기본 Parquet 파일
 - `CACHE_DIR`: 중간 산출물을 저장할 디렉터리 (필요 시 생성)
 - `SUBMISSION_DIR`: 제출 파일이 저장될 폴더
-- `EXPERIMENT_TRACKING`: `mlflow` 또는 `csv` 중 선택
-- `MLFLOW_TRACKING_URI`: MLflow 서버를 사용할 경우 URI
+- `EXPERIMENT_TRACKING`: `wandb` 고정(필요 시 보조 로그로 `csv` 추가 가능)
+- `WANDB_API_KEY`: W&B API 키(현재 값은 예시이므로 실제 키로 교체 필요)
+- `WANDB_ENTITY`, `WANDB_PROJECT`, `WANDB_RUN_GROUP`, `WANDB_MODE`: 팀/프로젝트 메타데이터와 실행 모드(`online`/`offline`)
+- `WANDB_DIR`: W&B 로컬 캐시 경로(정기적으로 정리 필요)
 - `GLOBAL_SEED`: 전역 난수 시드
 - `USE_GPU`: LightGBM GPU 학습 활용 여부 (0/1)
+- `OPTUNA_STORAGE`: Optuna 실험 기록 저장 위치(`sqlite:///optuna.db` 권장)
+- `ARTIFACT_RETENTION_DAYS`: 모델·로그 보관 기간(일)
 
-필요한 변수는 `.env`에서 추가하거나 수정한 뒤 `source .venv/bin/activate && export $(cat .env | xargs)`로 적용할 수 있습니다.
+필요한 변수는 `.env`에서 추가하거나 수정한 뒤 `source .venv/bin/activate && export $(cat .env | xargs)`로 적용할 수 있습니다. `WANDB_API_KEY`는 반드시 실제 키로 대체하세요.
+
+## 스토리지 관리 가이드
+- 모든 실험/제출 전 `du -sh / 2>/dev/null`로 루트 용량(150GB 한도)을 확인합니다.
+- `WANDB_DIR`, `OPTUNA_STORAGE`, `submission/`, `logs/` 등의 아티팩트는 `ARTIFACT_RETENTION_DAYS` 기준으로 주기적으로 정리합니다.
+- 필요 이상으로 모델, Optuna trial, W&B 로컬 캐시가 쌓이지 않도록 실험 종료 후 즉시 압축 또는 삭제합니다.
 
 ## 데이터 배치 규칙
 - 원본 Parquet, CSV 등 대회 데이터는 `/Competition/CTR/toss-ad-click-prediction/data`에 보관합니다.

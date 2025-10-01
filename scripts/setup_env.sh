@@ -103,6 +103,7 @@ print_completion_message() {
 환경 구성 완료 ✅
 - 가상환경 활성화: source .venv/bin/activate
 - 샘플 로딩 테스트: python main.py --check-data
+- 루트 용량 확인: du -sh / 2>/dev/null (150GB 한도 관리)
 
 `.env` 파일을 `.env.example`을 참고해 작성 후, Story 1.1의 스모크 테스트 스크립트를 실행하세요.
 EOF
