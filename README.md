@@ -57,5 +57,6 @@
 - `.env.example`: 데이터 경로, 캐시 위치, 실험 로깅 옵션 기본값.
 - Story 1.1 수용 기준: 메모리 사용 로깅, 실행 방법 문서화, 스모크 테스트 (`python main.py --check-data`) 포함.
 - Story 1.2 수용 기준: `src/eda/report_generator.py`로 day/hour, 사이클릭, 시퀀스 통계를 자동 생성하여 `docs/EDA.md` 갱신.
+- 새 작업물(코드, 노트북, 아티팩트)은 특별한 사유가 없으면 모두 `toss-ad-click-prediction/` 내부에서 관리한다.
 
 자세한 요구사항과 에픽/스토리 구조는 `docs/prd.md`를 참고하세요.

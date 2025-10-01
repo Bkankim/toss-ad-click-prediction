@@ -1,0 +1,2 @@
+run_id,stage,dataset,ap,wll,competition_score,notes
+20251001_0343_lgbm_baseline,baseline,train_sample_300k,0.0595474505,1.8488106372,0.2052855664,"LightGBM default params, sample_size=300000, num_boost_round=200, early_stopping=30"
