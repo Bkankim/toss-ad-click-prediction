@@ -19,6 +19,10 @@
    source .venv/bin/activate
    python main.py --check-data
    ```
+5. 자동 EDA 리포트를 생성해 핵심 통계를 확인합니다.
+   ```bash
+   python -m src.eda.report_generator --sample-size 300000 --output docs/EDA.md
+   ```
 
 ## 환경 변수
 `.env.example`에 Story 1.1에서 요구하는 최소 변수들이 정의되어 있습니다.
@@ -43,5 +47,6 @@
 - `scripts/setup_env.sh`: Python 3.11 기반 가상환경 생성, uv/pip 의존성 설치, GPU 옵션 안내.
 - `.env.example`: 데이터 경로, 캐시 위치, 실험 로깅 옵션 기본값.
 - Story 1.1 수용 기준: 메모리 사용 로깅, 실행 방법 문서화, 스모크 테스트 (`python main.py --check-data`) 포함.
+- Story 1.2 수용 기준: `src/eda/report_generator.py`로 day/hour, 사이클릭, 시퀀스 통계를 자동 생성하여 `docs/EDA.md` 갱신.
 
 자세한 요구사항과 에픽/스토리 구조는 `docs/prd.md`를 참고하세요.
