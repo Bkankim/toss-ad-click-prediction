@@ -10,8 +10,8 @@ from typing import Dict, List, Optional, Tuple
 
 import lightgbm as lgb
 import numpy as np
-import polars as pl
 import pandas as pd
+import polars as pl
 from sklearn.metrics import average_precision_score
 from sklearn.model_selection import StratifiedKFold
 
@@ -46,22 +46,30 @@ def load_dataset(
     return train_frame, test_frame
 
 
+# 숫자형 피처만 선별하여 NumPy 배열로 변환한다.
+def polars_to_numpy(frame: pl.DataFrame, exclude: Optional[List[str]] = None) -> Tuple[np.ndarray, List[str]]:
+    exclude = exclude or []
+    numeric_cols = [
+        col
+        for col, dtype in zip(frame.columns, frame.dtypes)
+        if col not in exclude and dtype in (pl.Float32, pl.Float64, pl.Int32, pl.Int64)
+    ]
+    if not numeric_cols:
+        raise ValueError("No numeric columns available after filtering")
+
+    numeric_frame = frame.select([pl.col(col).cast(pl.Float32) for col in numeric_cols])
+    return numeric_frame.to_numpy(), numeric_cols
+
+
 # pandas DataFrame으로 변환하고 문자열 컬럼을 제거한다.
 def prepare_features(
     frame: pl.DataFrame,
     target_column: str = "clicked",
 ) -> Tuple[np.ndarray, np.ndarray, List[str]]:
-    pandas_df = frame.to_pandas()
-    y = pandas_df[target_column].to_numpy()
-    pandas_df = pandas_df.drop(columns=[target_column])
-
-    object_cols = pandas_df.select_dtypes(include=["object", "string"]).columns.tolist()
-    if object_cols:
-        pandas_df = pandas_df.drop(columns=object_cols)
-
-    feature_names = pandas_df.columns.tolist()
-    X = pandas_df.to_numpy(dtype=np.float32)
-    return X, y, feature_names
+    y = frame[target_column].to_numpy()
+    feature_frame = frame.drop(target_column)
+    X, feature_names = polars_to_numpy(feature_frame)
+    return X.astype(np.float32), y.astype(np.float32), feature_names
 
 
 # 테스트 데이터 준비.
@@ -70,25 +78,30 @@ def prepare_test_features(
     feature_names: List[str],
     id_column: str = "ID",
 ) -> Tuple[np.ndarray, Optional[np.ndarray]]:
-    pandas_df = frame.to_pandas()
     ids = None
-    if id_column in pandas_df.columns:
-        ids = pandas_df[id_column].to_numpy()
-        pandas_df = pandas_df.drop(columns=[id_column])
+    if id_column in frame.columns:
+        ids = frame[id_column].to_numpy()
+        frame = frame.drop(id_column)
 
-    object_cols = pandas_df.select_dtypes(include=["object", "string"]).columns.tolist()
-    if object_cols:
-        pandas_df = pandas_df.drop(columns=object_cols)
+    numeric_cols = [col for col in feature_names if col in frame.columns]
+    missing_cols = [col for col in feature_names if col not in numeric_cols]
 
-    pandas_df = pandas_df.reindex(columns=feature_names, fill_value=0)
-    X_test = pandas_df.to_numpy(dtype=np.float32)
-    return X_test, ids
+    numeric_frame = frame.select([pl.col(col).cast(pl.Float32) for col in numeric_cols])
+    X_numeric = numeric_frame.to_numpy() if numeric_cols else np.empty((frame.height, 0), dtype=np.float32)
+
+    if missing_cols:
+        zeros = np.zeros((frame.height, len(missing_cols)), dtype=np.float32)
+        X = np.concatenate([X_numeric, zeros], axis=1)
+    else:
+        X = X_numeric
+
+    return X.astype(np.float32), ids
 
 
 # Weighted LogLoss를 계산한다.
 def weighted_logloss(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     eps = 1e-15
-    y_pred = np.clip(y_pred, eps, 1 - eps)
+    y_pred = np.clip(y_pred.astype(np.float64), eps, 1 - eps)
     pos_weight = float((y_true == 0).sum()) / max(float((y_true == 1).sum()), 1.0)
     weights = np.where(y_true == 1, pos_weight, 1.0)
     loss = -(weights * (y_true * np.log(y_pred) + (1 - y_true) * np.log(1 - y_pred)))
@@ -98,7 +111,7 @@ def weighted_logloss(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 # 일반 LogLoss를 계산한다.
 def logloss(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     eps = 1e-15
-    y_pred = np.clip(y_pred, eps, 1 - eps)
+    y_pred = np.clip(y_pred.astype(np.float64), eps, 1 - eps)
     loss = -(y_true * np.log(y_pred) + (1 - y_true) * np.log(1 - y_pred))
     return float(np.mean(loss))
 
@@ -117,7 +130,8 @@ def train_lightgbm(
     params: Dict[str, float],
     num_boost_round: int,
     early_stopping_rounds: int,
-    output_dir: Path,
+    output_dir: Optional[Path] = None,
+    sample_weight: Optional[np.ndarray] = None,
 ) -> Tuple[List[lgb.Booster], Dict[str, float], np.ndarray]:
     skf = StratifiedKFold(n_splits=num_folds, shuffle=True, random_state=GLOBAL_SEED)
 
@@ -129,8 +143,23 @@ def train_lightgbm(
         X_train, X_valid = X[train_idx], X[valid_idx]
         y_train, y_valid = y[train_idx], y[valid_idx]
 
-        train_dataset = lgb.Dataset(X_train, label=y_train, feature_name=feature_names)
-        valid_dataset = lgb.Dataset(X_valid, label=y_valid, feature_name=feature_names)
+        train_weight = sample_weight[train_idx] if sample_weight is not None else None
+        valid_weight = sample_weight[valid_idx] if sample_weight is not None else None
+
+        train_dataset = lgb.Dataset(
+            X_train,
+            label=y_train,
+            weight=train_weight,
+            feature_name=feature_names,
+            free_raw_data=False,
+        )
+        valid_dataset = lgb.Dataset(
+            X_valid,
+            label=y_valid,
+            weight=valid_weight,
+            feature_name=feature_names,
+            free_raw_data=False,
+        )
 
         booster = lgb.train(
             params,
@@ -146,13 +175,15 @@ def train_lightgbm(
         oof_pred[valid_idx] = valid_pred.astype(np.float32)
 
         ap = average_precision_score(y_valid, valid_pred)
-        wll = weighted_logloss(y_valid, valid_pred)
         ll = logloss(y_valid, valid_pred)
+        wll = weighted_logloss(y_valid, valid_pred)
         score = blended_score(ap, wll)
         fold_metrics.append({"fold": fold, "ap": ap, "logloss": ll, "wll": wll, "score": score})
 
-        model_path = output_dir / f"fold_{fold}.txt"
-        booster.save_model(model_path.as_posix())
+        if output_dir is not None:
+            output_dir.mkdir(parents=True, exist_ok=True)
+            model_path = output_dir / f"fold_{fold}.txt"
+            booster.save_model(model_path.as_posix())
 
     ap_full = average_precision_score(y, oof_pred)
     ll_full = logloss(y, oof_pred)
@@ -199,7 +230,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--folds", type=int, default=DEFAULT_FOLDS, help="Stratified K-Fold 수")
     parser.add_argument("--models-dir", type=Path, default=Path("models/lightgbm_baseline"), help="모델 저장 디렉터리")
     parser.add_argument("--metrics-path", type=Path, default=Path("logs/lightgbm_baseline_metrics.json"), help="메트릭 저장 경로")
-    parser.add_argument("--submission-path", type=Path, default=Path("submission/lightgbm_baseline.json"), help="제출 파일 저장 경로")
+    parser.add_argument("--submission-path", type=Path, default=Path("submission/lightgbm_baseline.csv"), help="제출 파일 저장 경로")
+    parser.add_argument(
+        "--device-type",
+        type=str,
+        default=os.getenv("LIGHTGBM_DEVICE", "cuda"),
+        help="LightGBM device_type (cpu/cuda/gpu)",
+    )
     return parser.parse_args()
 
 
@@ -226,11 +263,13 @@ def main() -> None:
         "bagging_freq": 1,
         "lambda_l2": 1.0,
         "seed": GLOBAL_SEED,
+        "device_type": args.device_type,
+        "force_row_wise": False,
     }
 
     args.models_dir.mkdir(parents=True, exist_ok=True)
 
-    models, metrics, oof_pred = train_lightgbm(
+    models, metrics, _ = train_lightgbm(
         X,
         y,
         feature_names,
@@ -244,6 +283,7 @@ def main() -> None:
     print("\nOOF Metrics:")
     overall = metrics["overall"]
     print(f"AP: {overall['ap']:.6f}")
+    print(f"LogLoss: {overall['logloss']:.6f}")
     print(f"Weighted LogLoss: {overall['wll']:.6f}")
     print(f"Blended Score: {overall['score']:.6f}")
 

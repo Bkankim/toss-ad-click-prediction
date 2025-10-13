@@ -24,7 +24,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("docs/EDA.md"),
+        default=Path("docs/analysis_auto.md"),
         help="생성된 Markdown 리포트를 저장할 경로",
     )
     parser.add_argument(

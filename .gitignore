@@ -302,3 +302,32 @@ $RECYCLE.BIN/
 *.csv
 
 # End of https://www.toptal.com/developers/gitignore/api/jupyternotebooks,python,windows,macos,linux,vim,visualstudiocode
+# ----- Project-specific artifacts -----
+# Model checkpoints & submissions
+models/*
+!models/.gitkeep
+!models/README.md
+
+submission/*
+!submission/.gitkeep
+!submission/README.md
+
+# Experiment trackers & logs
+wandb/
+logs/metrics/*
+!logs/metrics/.gitkeep
+!logs/metrics/README.md
+logs/optuna/
+logs/analysis/
+logs/downsampling/
+logs/*.json
+
+# Derived datasets
+data/clean_*/
+data/samples/
+data/seq_embedded/
+
+# Notebook artifacts
+notebooks/*.pkl
+notebooks/cache/
+notebooks/artifacts_*/

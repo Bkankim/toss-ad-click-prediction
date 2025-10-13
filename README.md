@@ -1,62 +1,86 @@
 # toss-ad-click-prediction
+토스 NEXT ML Challenge CTR 예측 대회 참가를 위해 구축한 LightGBM 기반 파이프라인입니다. 포트폴리오 용도로 재구성하여 문제 정의, 실험 근거, 재현 절차를 명확히 남겼습니다. 프로젝트에서 관리하는 PRD·히스토리·세션 로그를 참고해 최신 상태를 유지합니다.
 
-토스 NEXT ML Challenge CTR 예측 대회를 위한 LightGBM 기반 파이프라인입니다. 대회 규정 준수와 재현 가능한 실험 관리를 목표로 합니다.
+## 프로젝트 하이라이트
+- **최종 내부 AP 0.6104 / Public LB 0.34126**: Phase A 파이프라인(`20251011_221557_lgbm_phase_a`)이 달성했습니다.
+- **베이스라인 대비 +0.40p 개선**: 100만 샘플 베이스라인(0.2069) → 1:2 다운샘플(0.5807) → 최종 파이프라인(0.6104)으로 단계적 향상을 확인했습니다.
+- **재현 가능한 워크플로우**: 전처리 스크립트, 학습/추론 CLI, 로그 관리 규칙을 문서화하여 누구나 동일한 결과를 낼 수 있도록 구성했습니다.
+- **최종 결과**: Private 리더보드에서 **Top 10%**를 기록하며 대회를 마무리했습니다.
+- **평가 지표**: Score = 0.5 × AP + 0.5 × (1 / (1 + WLL)). PRD 목표(Score ≥ 0.700, Public AP ≥ 0.500)를 향해 실험을 지속 중입니다.
+
+## 문서 허브
+| 문서 | 설명 |
+| --- | --- |
+| [`docs/overview.md`](docs/overview.md) | 문제 정의, 핵심 성과, 접근 전략 요약 |
+| [`docs/pipeline.md`](docs/pipeline.md) | 데이터 전처리 → 학습 → 추론까지의 명령 모음과 체크리스트 |
+| [`docs/analysis.md`](docs/analysis.md) | 자동/수동 EDA 요약, 상관관계 분석, 리스크 평가 |
+| [`docs/experiments.md`](docs/experiments.md) | 대표 실험 하이라이트, 제출 이력, 교훈 정리 |
+| [`docs/operations.md`](docs/operations.md) | 환경 구성, 스토리지 정책, 실험 추적 가이드 |
 
 ## 빠른 시작
-1. 저장소 루트에서 환경 설정 스크립트를 실행합니다.
+1. 저장소 루트로 이동해 환경을 구성합니다.
    ```bash
    cd /Competition/CTR/toss-ad-click-prediction
    chmod +x scripts/setup_env.sh
    ./scripts/setup_env.sh
    ```
-2. `.env.example`을 복사해 실제 환경 변수 파일을 만듭니다.
+2. `.env.example`을 복사해 실제 환경 변수 파일을 준비합니다.
    ```bash
    cp .env.example .env
    ```
-3. `.env` 파일에서 데이터 경로와 로깅 옵션을 환경에 맞게 수정합니다.
-4. 가상환경을 활성화한 뒤 스모크 테스트를 실행해 데이터 적재가 정상 동작하는지 확인합니다.
+3. `.env`에서 데이터 경로, W&B, Optuna 설정을 환경에 맞게 수정 후 가상환경을 활성화합니다.
    ```bash
    source .venv/bin/activate
+   export $(cat .env | xargs)
+   ```
+4. 스모크 테스트로 데이터 적재를 확인합니다.
+   ```bash
    python main.py --check-data
    ```
-5. 자동 EDA 리포트를 생성해 핵심 통계를 확인합니다.
+5. 자동 EDA 리포트를 생성해 최신 분석을 갱신합니다.
    ```bash
-   python -m src.eda.report_generator --sample-size 300000 --output docs/EDA.md
+   python -m src.eda.report_generator --sample-size 300000 --output docs/analysis_auto.md
    ```
 
-## 환경 변수
-`.env.example`에 Story 1.1에서 요구하는 최소 변수들이 정의되어 있습니다.
+## 재현 가능한 워크플로우
+1. **전처리**
+   ```bash
+   python scripts/build_day7_features.py --train-path data/train.parquet --output-dir data/clean_corr96_phase_a
+   python scripts/build_history_cross_features.py --input data/clean_corr96_phase_a/train.parquet --output data/clean_corr96_phase_a_hist.parquet
+   python -m src.data.downsampling --train-path data/clean_corr96_phase_a_hist.parquet --output-path data/samples/train_downsample_phase_a.parquet
+   ```
+2. **학습**
+   ```bash
+   python -m src.training.lightgbm_baseline --sample-size 500000 --device-type cuda
+   python -m src.training.phase_a --train-path data/samples/train_downsample_1_2_cv_seqemb_seqbucket.parquet --num-boost-round 1000
+   ```
+3. **Optuna 튜닝 (선택)**
+   ```bash
+   python -m src.training.optuna_tuner --n-trials 50 --storage sqlite:///logs/optuna/phase_a.db
+   ```
+4. **추론 및 제출 파일 생성**
+   ```bash
+   python -m src.training.generate_predictions --model-dir models/lightgbm_phase_a --output submission/phase_a_calibrated.csv
+   ```
+5. **문서 업데이트**: 실험 결과는 `logs/metrics/*.csv`에 저장되고, 요약은 `docs/experiments.md`와 세션 로그에 반영합니다.
 
-- `DATA_ROOT`: 대회 데이터가 위치한 루트 경로
-- `TRAIN_PATH`, `TEST_PATH`: 학습·추론에 사용할 기본 Parquet 파일
-- `CACHE_DIR`: 중간 산출물을 저장할 디렉터리 (필요 시 생성)
-- `SUBMISSION_DIR`: 제출 파일이 저장될 폴더
-- `EXPERIMENT_TRACKING`: `wandb` 고정(필요 시 보조 로그로 `csv` 추가 가능)
-- `WANDB_API_KEY`: W&B API 키(현재 값은 예시이므로 실제 키로 교체 필요)
-- `WANDB_ENTITY`, `WANDB_PROJECT`, `WANDB_RUN_GROUP`, `WANDB_MODE`: 팀/프로젝트 메타데이터와 실행 모드(`online`/`offline`)
-- `WANDB_DIR`: W&B 로컬 캐시 경로(정기적으로 정리 필요)
-- `GLOBAL_SEED`: 전역 난수 시드
-- `USE_GPU`: LightGBM GPU 학습 활용 여부 (0/1)
-- `OPTUNA_STORAGE`: Optuna 실험 기록 저장 위치(`sqlite:///optuna.db` 권장)
-- `ARTIFACT_RETENTION_DAYS`: 모델·로그 보관 기간(일)
+## 스토리지 & 운영 정책
+- **용량 가드**: 작업 전 `du -sh / 2>/dev/null`로 루트 디스크 사용량(150GB 한도)을 확인합니다.
+- **산출물 관리**: `models/`, `submission/`, `logs/metrics/`는 Git에서 제외하고 `.gitkeep`과 README로 규칙만 남깁니다.
+- **외부 백업**: 제출 파일과 모델은 GitHub Release/S3 등 외부 스토리지에 즉시 백업하고 문서에 링크를 남깁니다.
+- **실험 추적**: 핵심 실험만 CSV 요약으로 남기고, 대량 로그는 문서 링크만 제공합니다. W&B 사용 시 API 키는 `.env`에서만 관리합니다.
 
-필요한 변수는 `.env`에서 추가하거나 수정한 뒤 `source .venv/bin/activate && export $(cat .env | xargs)`로 적용할 수 있습니다. `WANDB_API_KEY`는 반드시 실제 키로 대체하세요.
+## 저장소 구조 요약
+```
+├── docs/                # 포트폴리오 문서 (overview, pipeline, analysis, experiments, operations)
+├── notebooks/           # 탐색/시각화 노트북 (대표 노트만 보관)
+├── scripts/             # 전처리 및 특징 생성 CLI 스크립트
+├── src/                 # 데이터, 피처, 학습 파이프라인 모듈
+├── logs/metrics/        # 대표 실험 CSV 요약 (산출물 정책 참조)
+├── models/, submission/ # 모델/제출 산출물 (외부 스토리지로 백업)
+└── data/                # 원본/파생 데이터 (스크립트로 재생성 가능)
+```
 
-## 스토리지 관리 가이드
-- 모든 실험/제출 전 `du -sh / 2>/dev/null`로 루트 용량(150GB 한도)을 확인합니다.
-- `WANDB_DIR`, `OPTUNA_STORAGE`, `submission/`, `logs/` 등의 아티팩트는 `ARTIFACT_RETENTION_DAYS` 기준으로 주기적으로 정리합니다.
-- 필요 이상으로 모델, Optuna trial, W&B 로컬 캐시가 쌓이지 않도록 실험 종료 후 즉시 압축 또는 삭제합니다.
-
-## 데이터 배치 규칙
-- 원본 Parquet, CSV 등 대회 데이터는 `/Competition/CTR/toss-ad-click-prediction/data`에 보관합니다.
-- Git 추적은 `/Competition/CTR/toss-ad-click-prediction` 내부에서만 수행합니다.
-- 대회 규정을 준수하기 위해 외부 데이터는 사용하지 않습니다.
-
-## 개발 체크리스트 스냅샷
-- `scripts/setup_env.sh`: Python 3.11 기반 가상환경 생성, uv/pip 의존성 설치, GPU 옵션 안내.
-- `.env.example`: 데이터 경로, 캐시 위치, 실험 로깅 옵션 기본값.
-- Story 1.1 수용 기준: 메모리 사용 로깅, 실행 방법 문서화, 스모크 테스트 (`python main.py --check-data`) 포함.
-- Story 1.2 수용 기준: `src/eda/report_generator.py`로 day/hour, 사이클릭, 시퀀스 통계를 자동 생성하여 `docs/EDA.md` 갱신.
-- 새 작업물(코드, 노트북, 아티팩트)은 특별한 사유가 없으면 모두 `toss-ad-click-prediction/` 내부에서 관리한다.
-
-자세한 요구사항과 에픽/스토리 구조는 `docs/prd.md`를 참고하세요.
+## 기여 & 향후 계획
+- Phase B 데이터 대응, AutoML 기반 피처 선택, 앙상블 전략 등 후속 실험을 준비 중입니다.
+- 문서/코드 개선 아이디어가 있다면 이슈를 등록하거나 PR을 열어주세요.
