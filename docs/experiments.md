@@ -42,7 +42,3 @@
 - **성공 요인**: (a) 층화 다운샘플과 day7 특화 파생 조합, (b) 시퀀스 길이/다양성 피처 도입, (c) GPU 기반 대규모 학습과 Optuna 탐색.
 - **아쉬운 점**: day7 가중치 실험과 full train 재도전은 안정적 파라미터를 찾지 못함. feature pruning 자동화가 미흡.
 - **다음 액션**: (1) history 교차 피처 향상, (2) day7 holdout 기반 temperature scaling 재평가, (3) Phase B 데이터 대응 및 앙상블 전략 검토.
-
-## 7. 템플릿 & 참고 자료
-- 실험 카드 템플릿은 `docs/experiments/template.md`에 작성 예정입니다.
-- 원본 로그와 추가 산출물은 `logs/metrics/`, `notebooks/`, 세션 로그에 기록된 규칙을 따릅니다.
