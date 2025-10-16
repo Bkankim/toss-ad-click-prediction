@@ -1,4 +1,8 @@
 # toss-ad-click-prediction
+<img width="921" height="173" alt="image" src="https://github.com/user-attachments/assets/7d373ade-eec6-49f5-85ef-24036a27dbdf" />
+
+
+
 토스 NEXT ML Challenge CTR 예측 대회 참가를 위해 구축한 LightGBM 기반 파이프라인입니다. 포트폴리오 용도로 재구성하여 문제 정의, 실험 근거, 재현 절차를 명확히 남겼습니다. 프로젝트에서 관리하는 PRD·히스토리·세션 로그를 참고해 최신 상태를 유지합니다.
 
 ## 프로젝트 하이라이트
